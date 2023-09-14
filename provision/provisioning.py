@@ -2,6 +2,7 @@
 from micropython import const
 import struct
 import bluetooth
+import network
 import time
 import minipb
 
@@ -97,12 +98,12 @@ _PROV_SERVICE = (
 _IRQ_CENTRAL_CONNECT = const(1)
 _IRQ_CENTRAL_DISCONNECT = const(2)
 _IRQ_GATTS_WRITE = const(3)
-_IRQ_GATTS_INDICATE_DONE = const(20)
-_IRQ_CONNECTION_UPDATE = const(27)
-_IRQ_ENCRYPTION_UPDATE = const(28)
 _IRQ_PASSKEY_ACTION = const(31)
 
 _PASSKEY_ACTION_NONE = const(0)
+
+_IRQ_STA_CONNECT = const(1)
+_IRQ_STA_DISCONNECT = const(2)
 
 ADV_DATA_VERSION_IDX = 18
 
@@ -114,17 +115,24 @@ class ScanParams(minipb.Message):
     group_channels = minipb.Field(4, minipb.TYPE_UINT)
 
 @minipb.process_message_fields
-class Request(minipb.Message):
-    op_code =       minipb.Field(1, minipb.TYPE_UINT)
-    scan_params =   minipb.Field(10, ScanParams)
-
-@minipb.process_message_fields
 class WifiInfo(minipb.Message):
     ssid =          minipb.Field(1, minipb.TYPE_BYTES, required=True)
     bssid =         minipb.Field(2, minipb.TYPE_BYTES, required=True)
     band =          minipb.Field(3, minipb.TYPE_UINT)
-    channel =       minipb.Field(4, minipb.TYPE_UINT32, required=True)
+    channel =       minipb.Field(4, minipb.TYPE_UINT, required=True)
     auth =          minipb.Field(5, minipb.TYPE_UINT)
+
+@minipb.process_message_fields
+class WifiConfig(minipb.Message):
+    wifi =          minipb.Field(1, WifiInfo)
+    passphrase =    minipb.Field(2, minipb.TYPE_BYTES)
+    volatileMemory = minipb.Field(3, minipb.TYPE_BOOL)
+
+@minipb.process_message_fields
+class Request(minipb.Message):
+    op_code =       minipb.Field(1, minipb.TYPE_UINT)
+    scan_params =   minipb.Field(10, ScanParams)
+    config =        minipb.Field(11, WifiConfig)
 
 @minipb.process_message_fields
 class ConnectionInfo(minipb.Message):
@@ -143,23 +151,33 @@ class Response(minipb.Message):
     status =        minipb.Field(2, minipb.TYPE_UINT)
     device_status = minipb.Field(10, DeviceStatus)
 
+@minipb.process_message_fields
+class ScanRecord(minipb.Message):
+    wifi =  minipb.Field(1, minipb.TYPE_BYTES) # maximum recursion issue
+    rssi =  minipb.Field(2, minipb.TYPE_INT)
+
+@minipb.process_message_fields
+class Result(minipb.Message):
+    scan_record =   minipb.Field(1, ScanRecord)
+    state =         minipb.Field(2, minipb.TYPE_UINT)
+    reason =        minipb.Field(3, minipb.TYPE_UINT)
+
 class BLEProvisioningService:
-    def __init__(self, ble):
+    def __init__(self, ble, nic):
         self._scan_response = bytearray()
+        self._nic = nic
         self._ble = ble
         self._ble.active(True)
         self._ble.irq(self._irq)
-        self._ble.config(io=_IO_CAPABILITY_NO_INPUT_OUTPUT, mitm=False, bond=False)
+        self._nic.irq(self._nic_irq)
         self.passkey_handle = None
         self.connections = []
         self.addresses = []
-        self.writes = []
-        #print(self._ble.gatts_register_services((_PROV_SERVICE,)))
-        ((self._handle_info, self._handle_control, cud0, self._handle_data, cud1),) = self._ble.gatts_register_services((_PROV_SERVICE,))
+        self.request = None
+        ((self._handle_info, self._handle_control, _, self._handle_data, _),) = self._ble.gatts_register_services((_PROV_SERVICE,))
         version_msg = minipb.Wire([('version', 'T')])
         self._ble.gatts_write(self._handle_info, version_msg.encode({'version': 0x01})) # set the version
-        self._scan_response += struct.pack("BB", 21, 0x21) + _PROV_SERVICE[0] + struct.pack("BBBB", 1, 0, 0, 0)
-        self._advertise()
+        self._ble.gatts_set_buffer(self._handle_control, 150)
     
     def _irq(self, event, data):
         if event == _IRQ_CENTRAL_CONNECT:
@@ -170,29 +188,100 @@ class BLEProvisioningService:
             conn_handle, addr_type, addr = data
             self.connections.remove(conn_handle)
             self.addresses.remove(addr)
-            self._advertise()
-        elif event == _IRQ_GATTS_INDICATE_DONE:
-            print("Indicate done")
         elif event == _IRQ_PASSKEY_ACTION:
             self.passkey_handle, self.passkey_action, self.passkey = data
-        elif event == _IRQ_ENCRYPTION_UPDATE:
-            print("Encryption update")
         elif event == _IRQ_GATTS_WRITE:
             handle, attr = data
-            self.writes.insert(0, (handle, attr))
+            if (attr == self._handle_control):
+                self.request = handle
 
+    def _nic_irq(self, event, data):
+        if event == _IRQ_STA_CONNECT:
+            res = Result()
+            res.state = 4 # CONNECTED
+            self._ble.gatts_write(self._handle_data, res.encode(), True)
 
-    def _advertise(self, interval_us=100000):
-        self._scan_response[ADV_DATA_VERSION_IDX] = 1
+    def advertise(self, interval_us=1000000):
+        self._scan_response += struct.pack("BB", 21, 0x21) + _PROV_SERVICE[0] + struct.pack("BBBB", 1, 0, 0, 0)
         self._ble.gap_advertise(interval_us, adv_data=advertising_payload(name="mpy", services=[_PROV_SERVICE[0]]), resp_data=self._scan_response)
         print("Start advertising")
 
-    def write(self, handle, data):
-        self._ble.gatts_write(handle, data)
+    def handle_request(self):
+        rsp = Response()
+        data = self._ble.gatts_read(self._handle_control)
+        # We could call Request.decode(data), but the nested Messages take
+        # quite a bit of RAM, so let's get a raw Wire, and get the inside
+        # Messages separately
+        raw = minipb.Wire.decode_raw(data)
+        rsp.op_code = raw[0]['data']
+
+        if rsp.op_code == 1: # GET_STATUS
+            try:
+                status = self._nic.status()
+                if status == network.STAT_GOT_IP:
+                    rsp.device_status = DeviceStatus(state=4)
+                elif status == network.STAT_CONNECTING:
+                    rsp.device_status = DeviceStatus(state=3)
+                else:
+                    rsp.device_status = DeviceStatus(state=0)
+                profiles = self._nic.profile('list')
+                if len(profiles) > 0:
+                    #for profile in profiles: 
+                    # Current provisioning App only supports 1 profile
+                    profile = profiles[len(profiles) - 1]
+                    info = WifiInfo()
+                    info.ssid = profile[0]
+                    info.bssid = profile[1]
+                    info.auth = profile[2]
+                    info.channel = 255  # WIFI_CHANNEL_ANY
+
+                rsp.status = 0 # SUCCESS
+            except:
+                rsp.status = 3 # INTERNAL_ERROR
+        elif rsp.op_code == 2: # START_SCAN
+            try:
+                scans = self._nic.scan()
+                for scan in scans:
+                    ap = Result()
+                    ap.scan_record = ScanRecord()
+                    ap.scan_record.rssi = abs(scan[3]) # TODO: figure out why minipb doesn't take negative values
+                    wifi = WifiInfo()
+                    wifi.ssid = scan[0]
+                    wifi.bssid = scan[1]
+                    wifi.channel = scan[2]
+                    wifi.auth = scan[4]
+                    ap.scan_record.wifi = wifi.encode()
+                    self._ble.gatts_notify(self.request, self._handle_data, ap.encode())
+                rsp.status = 0
+            except:
+                rsp.status = 3
+        elif rsp.op_code == 3: # STOP_SCAN
+            # There is no API to stop scanning, so just return success
+            rsp.status = 0
+        elif rsp.op_code == 4: # SET_CONFIG
+            rsp.op_code = 4
+            config = WifiConfig.decode(raw[1]['data'])
+            ssid = config.wifi.ssid
+            if len(ssid) == 0:
+                # We need an SSID for Certificate Storage
+                rsp.status = 3
+            else:
+                # TODO: Add other restrictions (like Band)
+                self._nic.profile('add', ssid=ssid, auth=config.wifi.auth, key=config.passphrase)
+                #bssid = config.wifi.bssid # We'll discard this, so we can connect to any AP with the SSID
+                self._nic.profile('connect', ssid)
+                rsp.status = 0
+
+        self._ble.gatts_indicate(self.request, self._handle_control, rsp.encode())
+        self.request = None
+
 
 def run():
     ble = bluetooth.BLE()
-    p = BLEProvisioningService(ble)
+    ble.config(io=_IO_CAPABILITY_NO_INPUT_OUTPUT, mitm=False, bond=False)
+    nic = network.WLAN(network.STA_IF)
+    p = BLEProvisioningService(ble, nic)
+    p.advertise()
     try:
         while True:
             if p.passkey_handle is not None:
@@ -201,18 +290,9 @@ def run():
                 else:
                     print("Other action")
                 p.passkey_handle = None
-            while p.writes:
-                w = p.writes.pop()
-                req = Request.decode(p._ble.gatts_read(w[1]))
-                print(req)
-                if req.op_code == 1: # GET_STATUS
-                    print("Get Status Received")
-                    rsp = Response()
-                    rsp.status = 0 # SUCCESS
-                    rsp.op_code = req.op_code
-                    stat = DeviceStatus(state=0) # DISCONNECTED
-                    rsp.device_status = stat 
-                    p._ble.gatts_indicate(w[0], w[1], rsp.encode())
+            if p.request is not None:
+                p.handle_request()
+
             time.sleep_ms(100)
     except KeyboardInterrupt:
         pass
