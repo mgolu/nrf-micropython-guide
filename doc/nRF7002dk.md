@@ -4,7 +4,7 @@
 
 ![nRF7002DK](https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/_images/nRF70dk.png)
 
-- Download the `nrf7002dk_merged.hex` file from [Releases](/releases/).
+- Download the `nrf7002dk_merged.hex` file from [Releases](https://github.com/mgolu/nrf-micropython-guide/releases).
 - Install [nRF Connect for Desktop](https://www.nordicsemi.com/Products/Development-tools/nrf-connect-for-desktop) 
 - Use the [Programmer](https://infocenter.nordicsemi.com/topic/ug_nc_programmer/UG/nrf_connect_programmer/ncp_application_overview.html?cp=11_3_2_2) application to program the Hex file onto your development kit.
 > **_NOTE_**: For programming, use the USB port on the left side of the picture above, which is connected to the on-board debugger/programmer.
