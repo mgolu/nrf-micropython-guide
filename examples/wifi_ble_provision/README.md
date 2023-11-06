@@ -11,9 +11,9 @@ The sample uses the `bisect` library, and a modified version of the `minipb` lib
 version of `minipb` is provided here. You can either download `bisect` from micropython-lib, or use
 `mpi` to install it. For example:
 
-    $ mpremote mip --target '/flash' install bisect
-    $ mpremote cp minipb.py :minipb.py
-    $ mpremote cp provisioning.py :provisioning.py
+    $ mpremote <device> mip --target '/flash' install bisect
+    $ mpremote <device> cp minipb.py :minipb.py
+    $ mpremote <device> cp provisioning.py :provisioning.py
 
 ## Running the program
 

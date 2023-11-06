@@ -1,5 +1,6 @@
 
 from micropython import const
+from machine import Pin
 import struct
 import bluetooth
 import network
@@ -162,6 +163,44 @@ class Result(minipb.Message):
     state =         minipb.Field(2, minipb.TYPE_UINT)
     reason =        minipb.Field(3, minipb.TYPE_UINT)
 
+class CredentialConnector:
+    def __init__(self, nic):
+        self._nic = nic
+        self._nic.irq(self._nic_irq)
+        self._connecting = False
+    
+    def _nic_irq(self, event, data):
+        if event == _IRQ_STA_CONNECT:
+            # data[0] will be 0 if successful, an error code otherwise
+            self.connection_status = data[0]
+            if self._cb:
+                self._cb(data[0])
+            self._connecting = False
+
+    def connect_nonblocking(self, ssid, cb, timeout=10):
+        self._cb = cb
+        self._connecting = True
+        self._nic.credential('connect', ssid, timeout)
+
+    def connect_blocking(self, ssid, timeout=10):
+        self.connect_nonblocking(ssid, None, timeout)
+        while self._connecting:
+            time.sleep_ms(200)
+        return self.connection_status
+
+    def connect_any(self):
+        """Start connecting to stored credentials
+
+        This will attempt to connect to all the stored credentials, one by one.
+        It will stop when it successfully connects to a Wi-Fi access point. It
+        will not start if already connected, so call nic.disconnect() first if
+        needed.
+        """
+
+        for profile in self._nic.credential('list'):
+            if not self._nic.isconnected():
+                self.connect_blocking(profile[0])
+ 
 class BLEProvisioningService:
     def __init__(self, ble, nic):
         self._scan_response = bytearray()
@@ -169,7 +208,6 @@ class BLEProvisioningService:
         self._ble = ble
         self._ble.active(True)
         self._ble.irq(self._irq)
-        self._nic.irq(self._nic_irq)
         self.passkey_handle = None
         self.connections = []
         self.addresses = []
@@ -195,16 +233,17 @@ class BLEProvisioningService:
             if (attr == self._handle_control):
                 self.request = handle
 
-    def _nic_irq(self, event, data):
-        if event == _IRQ_STA_CONNECT:
-            res = Result()
-            res.state = 4 # CONNECTED
-            self._ble.gatts_write(self._handle_data, res.encode(), True)
+    def _notify_connection(self, status):
+        res = Result()
+        res.state = 4 if (status == 0) else 5 # CONNECTED or CONNECTION_FAILED
+        self._ble.gatts_write(self._handle_data, res.encode(), True)
 
     def advertise(self, interval_us=1000000):
         self._scan_response += struct.pack("BB", 21, 0x21) + _PROV_SERVICE[0] + struct.pack("BBBB", 1, 0, 0, 0)
         self._ble.gap_advertise(interval_us, adv_data=advertising_payload(name="mpy", services=[_PROV_SERVICE[0]]), resp_data=self._scan_response)
-        print("Start advertising")
+    
+    def end(self):
+        self._ble.gap_advertise(None)
 
     def handle_request(self):
         rsp = Response()
@@ -224,7 +263,7 @@ class BLEProvisioningService:
                     rsp.device_status = DeviceStatus(state=3)
                 else:
                     rsp.device_status = DeviceStatus(state=0)
-                profiles = self._nic.profile('list')
+                profiles = self._nic.credential('list')
                 if len(profiles) > 0:
                     #for profile in profiles: 
                     # Current provisioning App only supports 1 profile
@@ -267,37 +306,60 @@ class BLEProvisioningService:
                 rsp.status = 3
             else:
                 # TODO: Add other restrictions (like Band)
-                self._nic.profile('add', ssid=ssid, auth=config.wifi.auth, key=config.passphrase)
+                self._nic.credential('add', ssid=ssid, auth=config.wifi.auth, key=config.passphrase)
                 #bssid = config.wifi.bssid # We'll discard this, so we can connect to any AP with the SSID
-                self._nic.profile('connect', ssid)
+                cc = CredentialConnector(self._nic)
+                cc.connect_nonblocking(ssid, self._notify_connection)
                 rsp.status = 0
 
         self._ble.gatts_indicate(self.request, self._handle_control, rsp.encode())
-        self.request = None
+        self.request = None           
 
-
-def run():
-    ble = bluetooth.BLE()
-    ble.config(io=_IO_CAPABILITY_NO_INPUT_OUTPUT, mitm=False, bond=False)
+def run(terminateOnConnected=True, led=None):
     nic = network.WLAN(network.STA_IF)
+    if nic.isconnected():   # The App only handles one connection, so don't start if we're already connected
+        return
+    ble = bluetooth.BLE()
+    
+    # Pairing is required, so we need to set the input/output capabilities of the device.
+    # This can be changed if a device has a keyboard or display, but for now pairing will
+    # be Just Works.
+    ble.config(io=_IO_CAPABILITY_NO_INPUT_OUTPUT, mitm=False, bond=False)
     p = BLEProvisioningService(ble, nic)
     p.advertise()
+    loops = 0
     try:
+        # This is the main loop for the application, as most everything else
+        # runs on a callback/interrupt way.
         while True:
+            # If using anything other than Just Works pairing, would have to
+            # handle the pairing events here
             if p.passkey_handle is not None:
                 if p.passkey_action == _PASSKEY_ACTION_NONE:
                     print("Passkey action none")
                 else:
                     print("Other action")
                 p.passkey_handle = None
+            
+            # These are the requests coming over BLE by the provisioning App.
             if p.request is not None:
                 p.handle_request()
+            if terminateOnConnected and nic.isconnected():
+                break
 
+            if led != None:
+                loops += 1
+                if p.connections:
+                    led.value(1)
+                elif (loops % 5) == 0: # Flash every 500ms
+                    led.value(0 if (loops % 10) == 0 else 1)
             time.sleep_ms(100)
     except KeyboardInterrupt:
         pass
+    p.end()
+    led.value(0)
 
 
 if __name__ == "__main__":
-    run()
+    run(led = Pin(Pin.cpu.gpio1_6, Pin.OUT))
     
