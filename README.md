@@ -27,4 +27,5 @@ Look at the device guides for the pins that are available.
 The following boards are currently supported:
 
 * [nRF7002DK](/doc/nRF7002dk.md): BLE and Wi-Fi Development Kit
+* [nrf9160DK](/doc/nrf9160dk.md): Cellular and GNSS Development Kit
 
