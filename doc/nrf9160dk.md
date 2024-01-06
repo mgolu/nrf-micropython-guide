@@ -79,6 +79,11 @@ This means that credentials only need to be loaded once, even across reboots. Th
 has Security Tags which can have Root CA certificates, Client certificates, Keys, etc.
 These Security Tags are then specified when opening a socket.
 
+> **_NOTE_** The security tag 16842753 is used for nRF Cloud and should not be deleted
+or used for other purposes. If you are not using a Development Kit or Thingy, you first
+need to generate the credentials and load the AWS CA certificate. See
+[these instructions.](https://docs.nordicsemi.com/bundle/nrf-cloud/page/Devices/Security/Credentials.html#generating-credentials-using-at-commands)
+
 #### Credential types
 
 For the commands below, these are the credential types:
