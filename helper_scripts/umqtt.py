@@ -117,6 +117,8 @@ class MQTTClient:
         if self.user is not None:
             self._send_str(self.user)
             self._send_str(self.pswd)
+
+        # TODO: this causes exception if the socket is not open, check first.
         resp = self.sock.read(4)
         assert resp[0] == 0x20 and resp[1] == 0x02
         if resp[3] != 0:
@@ -124,6 +126,7 @@ class MQTTClient:
         return resp[2] & 1
 
     def disconnect(self):
+        # TODO: add a call for closing the socket without writing first? i.e. server closed the connection
         self.sock.write(b"\xe0\0")
         self.sock.close()
 
