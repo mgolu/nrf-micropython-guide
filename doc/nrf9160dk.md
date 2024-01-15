@@ -17,12 +17,14 @@ The interface chip on the nRF9160DK exposes 3 virtual COM ports. The first one i
 
 The first time that you use the device you might need to create the filesystem. You can do that from the REPL prompt:
 
-    import os
-    from zephyr import FlashArea
+```python
+import os
+from zephyr import FlashArea
 
-    block_dev = FlashArea(FlashArea.STORAGE, 4096)
-    os.VfsLfs2.mkfs(block_dev)
-    os.mount(block_dev, '/flash')
+block_dev = FlashArea(FlashArea.STORAGE, 4096)
+os.VfsLfs2.mkfs(block_dev)
+os.mount(block_dev, '/flash')
+```
 
 ### Buttons and LEDs
 
@@ -38,27 +40,28 @@ There are four LEDs:
 
 
 ## Pins and GPIO
+```python
+from machine import Pin
 
-    from machine import Pin
-
-    pin = Pin(Pin.cpu.gpio0_2, Pin.OUT)
-
+pin = Pin(Pin.cpu.gpio0_2, Pin.OUT)
+```
 ## I2C
 
 The available bus is `i2c1` and this is how you get an instance:
+```python
+from machine import I2C
 
-    from machine import I2C
-
-    i2c = I2C('i2c1')
+i2c = I2C('i2c1')
+```
 
 ## Cellular interface
 
 The Cellular interface is part of the `network` module. You can get an instance with the following example:
-
-    import network
-    nic = network.CELL()
-    nic.active(True)
-    nic.connect()
+```python
+import network
+nic = network.CELL()
+nic.connect()
+```
 
 Once connected, you can use sockets with some modifications.
 
@@ -87,14 +90,15 @@ need to generate the credentials and load the AWS CA certificate. See
 #### Credential types
 
 For the commands below, these are the credential types:
-
-    0 – Root CA certificate (ASCII text).
-    1 – Client certificate (ASCII text).
-    2 – Client private key (ASCII text).
-    3 – PSK (ASCII text in hexadecimal string format).
-    4 – PSK identity (ASCII text).
-    5 – Public key (ASCII text). Used in authenticated AT commands.
-    6 – Device identity public key.
+```
+0 – Root CA certificate (ASCII text).
+1 – Client certificate (ASCII text).
+2 – Client private key (ASCII text).
+3 – PSK (ASCII text in hexadecimal string format).
+4 – PSK identity (ASCII text).
+5 – Public key (ASCII text). Used in authenticated AT commands.
+6 – Device identity public key.
+```
 
 #### CELL.cert(action[, args])
 
@@ -103,22 +107,28 @@ The available actions are:
 * ``list``: returns a list of the programmed credentials. Each credential is a tuple
 with two values: `(sec_tag, type)`. You can also filter to limit the list to a specific
 `sec_tag` or even a `sec_tag` and `type`.
-    
-        nic.cert('list')         # List of all programmed credentials
-        nic.cert('list', 100)    # List of credentials for sec_tag 100
-        nic.cert('list', 100, 0) # List of Root CA certificate for sec_tag 100
+
+```python
+nic.cert('list')         # List of all programmed credentials
+nic.cert('list', 100)    # List of credentials for sec_tag 100
+nic.cert('list', 100, 0) # List of Root CA certificate for sec_tag 100
+```
 
 * ``delete``: deletes a specific credential. Both `sec_tag` and `type` are required arguments.
 
-        nic.cert('delete', 100, 1)  # Delete the Client certificate for sec_tag 100
+```python
+nic.cert('delete', 100, 1)  # Delete the Client certificate for sec_tag 100
+```
 
 * ``write``: write a specific credential. Both `sec_tag` and `type` are required arguments.
 Certificates noted as `ASCII text` must be in PEM format.
 
-        # Read the CA certificate from flash, and write to sec_tag 100
-        with open('/flash/ca_cert.pem', 'r') as f:
-            ca_data = f.read()
-            nic.cert('write', 100, 0, ca_data)
+```python
+# Read the CA certificate from flash, and write to sec_tag 100
+with open('/flash/ca_cert.pem', 'r') as f:
+    ca_data = f.read()
+    nic.cert('write', 100, 0, ca_data)
+```
 
 ### TLS sockets
 
@@ -127,8 +137,9 @@ wrapping sockets with the `ssl` module after being created doesn't work. Instead
 socket needs to be created as a TLS socket.
 
 The API to create a socket is:
-
-    socket.socket(family, socktype, proto, sec_tag[, verify[, hostname]])
+```python
+socket.socket(family, socktype, proto, sec_tag[, verify[, hostname]])
+```
 
 ``family`` is required and can be ``socket.AF_INET`` or ``socket.AF_INET6``
 
@@ -144,10 +155,6 @@ If `verify` is included, you can also include `hostname` which must be a string.
 If included, then Server Name Identification (SNI) is used.
 
 ### Specifics of the CELL class
-
-#### CELL.active([is_active])
-
-It is required to activate the interface before using most other methods.
 
 #### CELL.connect()
 
@@ -190,7 +197,9 @@ Note that the modem must not be connected or trying to connect to change this co
 
 For example, to support both networks and GPS, and prefer Cat M1:
 
-    nic.config(mode=(network.LTE_MODE_LTEM | network.LTE_MODE_NBIOT | network.LTE_MODE_GPS,network.LTE_MODE_LTEM))
+```python
+nic.config(mode=(network.LTE_MODE_LTEM | network.LTE_MODE_NBIOT | network.LTE_MODE_GPS,network.LTE_MODE_LTEM))
+```
 
 A special value for preference is `0`, which means no preference. 
 
@@ -211,17 +220,30 @@ Register an ``irq_handler`` to get events from the cellular device. To save spac
 interrupts are not defined as module constants. You can instead add the ones needed to your
 Python scripts:
 
-    _IRQ_NW_REG_STATUS       = const(0x1)
-    _IRQ_PSM_UPDATE          = const(0x2)
-    _IRQ_EDRX_UPDATE         = const(0x4)
-    _IRQ_RRC_UPDATE          = const(0x8)
-    _IRQ_CELL_UPDATE         = const(0x10)
-    _IRQ_LTE_MODE_UPDATE     = const(0x20)
-    _IRQ_TAU_PRE_WARN        = const(0x40)
-    _IRQ_NEIGHBOR_CELL_MEAS  = const(0x80)
-    _IRQ_LOCATION_FOUND      = const(0x100)
-    _IRQ_LOCATION_TIMEOUT    = const(0x200)
-    _IRQ_LOCATION_ERROR      = const(0x400)
+```python
+_IRQ_NW_REG_STATUS       = const(0x1)
+_IRQ_PSM_UPDATE          = const(0x2)
+_IRQ_EDRX_UPDATE         = const(0x4)
+_IRQ_RRC_UPDATE          = const(0x8)
+_IRQ_CELL_UPDATE         = const(0x10)
+_IRQ_LTE_MODE_UPDATE     = const(0x20)
+_IRQ_TAU_PRE_WARN        = const(0x40)
+_IRQ_NEIGHBOR_CELL_MEAS  = const(0x80)
+_IRQ_LOCATION_FOUND      = const(0x100)
+_IRQ_LOCATION_TIMEOUT    = const(0x200)
+_IRQ_LOCATION_ERROR      = const(0x400)
+```
+
+#### CELL.uuid()
+
+Get the device's UUID, from the internal JWT. This can be used as the Device ID when connecting
+to nRF Cloud if the device has been provisioned with the UUID.
+
+#### CELL.imei()
+
+Get the modem's IMEI. This can be used for reporting to a system that wants to keep track
+of IMEIs. It can also be used as the Device ID for connecting to nRF Cloud if the device is
+on a Development Kit that has been provisioned into nRF Cloud with the Device ID `nrf-<imei>`.
 
 ## Location Services
 
@@ -244,6 +266,7 @@ will be called when the location is found or if there is a timeout.
 
 Example:
 
+```python
     def irq_handler(event, data):
         if event == _IRQ_LOCATION_FOUND:
             print("Location found via {}: Latitude {}, Longitude {}, accuracy {}".format(data[0], data[1], data[2], data[3]))
@@ -259,6 +282,7 @@ Example:
     while not nic.isconnected():
         time.sleep(1)
     nic.location(gnss=(120,0), cell=20, interval=240) # Try GNSS for 120 seconds, then fallback to cellular with 20 second timeout if GNSS fails
+```
 
 #### CELL.location_cancel()
 

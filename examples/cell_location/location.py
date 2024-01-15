@@ -37,7 +37,6 @@ def irq_handler(event, data):
 
 def run():
     nic = network.CELL()
-    nic.active(True)
     nic.irq(handler=irq_handler, mask=_IRQ_NW_REG_STATUS | _IRQ_RRC_UPDATE | _IRQ_PSM_UPDATE | _IRQ_LOCATION_FOUND | _IRQ_LOCATION_TIMEOUT | _IRQ_LOCATION_ERROR)
     nic.connect()
     while not nic.isconnected():

@@ -38,7 +38,6 @@ def mqtt_callback(topic, msg):
 
 def run():
     nic = network.CELL()
-    nic.active(True)
     check_cacert(nic)
     if not nic.isconnected():
         nic.connect()

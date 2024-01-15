@@ -8,13 +8,13 @@ send data to an MQTT broker using the Cellular interface.
 Install the board support file which provides easier access to the buttons
 and LEDs on the board:
 
-    $ mpremote <device> cp ../board_support/nrf9160dk.py :nrf9160dk.py
+    $ mpremote <device> cp ../../helper_scripts/board_support/nrf9160dk.py :nrf9160dk.py
 
 Install the `umqtt.py` file. This is mostly based on the `umqtt.py` file from
 the micropython-lib, but customized to the offloaded TLS sockets that are
 used on nRF91xx devices.
 
-    $ mpremote <device> cp umqtt.py :umqtt.py
+    $ mpremote <device> cp ../../helper_scripts/umqtt.py :umqtt.py
 
 Install the ``mqtt_cell.py``. Make sure to make any necessary modifications here,
 for example if not using TLS, as well as the MQTT server, publish and

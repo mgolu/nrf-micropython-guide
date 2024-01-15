@@ -1,4 +1,7 @@
-import socket as socket
+# This file is based on umqtt.py from micropython-lib. It has been modified
+# to use offloaded TLS sockets that are used in Zephyr.
+
+import socket
 import ustruct as struct
 from ubinascii import hexlify
 
@@ -81,7 +84,12 @@ class MQTTClient:
                     self.ssl_params.get('verify', socket.TLS_PEER_VERIFY_REQUIRED))
         else:
             self.sock = socket.socket()
-        self.sock.connect(addr)
+        
+        try:
+            self.sock.connect(addr)
+        except:
+            self.sock.close()
+            return -1
 
         premsg = bytearray(b"\x10\0\0\0\0\0")
         msg = bytearray(b"\x04MQTT\x04\x02\0\0")
@@ -109,7 +117,6 @@ class MQTTClient:
 
         self.sock.write(premsg, i + 2)
         self.sock.write(msg)
-        # print(hex(len(msg)), hexlify(msg, ":"))
         self._send_str(self.client_id)
         if self.lw_topic:
             self._send_str(self.lw_topic)
@@ -117,14 +124,25 @@ class MQTTClient:
         if self.user is not None:
             self._send_str(self.user)
             self._send_str(self.pswd)
-        resp = self.sock.read(4)
+
+        try:
+            resp = self.sock.read(4)
+        except:
+            self.sock.close()
+            return -1
+
         assert resp[0] == 0x20 and resp[1] == 0x02
         if resp[3] != 0:
             raise MQTTException(resp[3])
         return resp[2] & 1
 
     def disconnect(self):
-        self.sock.write(b"\xe0\0")
+        # If the server closed the connection, we still need to close our side, so ignore
+        # the exception when trying to write into a half-open socket. 
+        try:
+            self.sock.write(b"\xe0\0")
+        except:
+            pass
         self.sock.close()
 
     def ping(self):
@@ -143,7 +161,6 @@ class MQTTClient:
             sz >>= 7
             i += 1
         pkt[i] = sz
-        # print(hex(len(pkt)), hexlify(pkt, ":"))
         self.sock.write(pkt, i + 1)
         self._send_str(topic)
         if qos > 0:
@@ -170,7 +187,6 @@ class MQTTClient:
         pkt = bytearray(b"\x82\0\0\0")
         self.pid += 1
         struct.pack_into("!BH", pkt, 1, 2 + 2 + len(topic) + 1, self.pid)
-        # print(hex(len(pkt)), hexlify(pkt, ":"))
         self.sock.write(pkt)
         self._send_str(topic)
         self.sock.write(qos.to_bytes(1, "little"))
