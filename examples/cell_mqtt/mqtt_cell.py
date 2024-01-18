@@ -58,7 +58,7 @@ def run():
         print("MQTT connection established")
 
         while True:
-            c.check_msg()
+            c.process()
             time.sleep_ms(1000)
     finally:
         c.disconnect()

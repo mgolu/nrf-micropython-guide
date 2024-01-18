@@ -2,6 +2,7 @@ v1.1 - 16 January 2024
 Removed CELL.active(): modem is activated (but CFUN=0) when the object is created.
 Added JSON library
 Added CELL.uuid() and CELL.imei(). Needed for nRF Cloud Device ID.
+Added support for nRF9161DK
 
 v1.0 - 3 January 2024
 Initial release

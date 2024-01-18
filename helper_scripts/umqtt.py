@@ -4,6 +4,7 @@
 import socket
 import ustruct as struct
 from ubinascii import hexlify
+import time
 
 
 class MQTTException(Exception):
@@ -39,6 +40,7 @@ class MQTTClient:
         self.lw_msg = None
         self.lw_qos = 0
         self.lw_retain = False
+        self.last_ping = 0
 
     def _send_str(self, s):
         self.sock.write(struct.pack("!H", len(s)))
@@ -134,6 +136,8 @@ class MQTTClient:
         assert resp[0] == 0x20 and resp[1] == 0x02
         if resp[3] != 0:
             raise MQTTException(resp[3])
+        
+        self.last_ping = time.time()
         return resp[2] & 1
 
     def disconnect(self):
@@ -147,6 +151,7 @@ class MQTTClient:
 
     def ping(self):
         self.sock.write(b"\xc0\0")
+        self.last_ping = time.time()
 
     def publish(self, topic, msg, retain=False, qos=0):
         pkt = bytearray(b"\x30\0\0\0")
@@ -169,6 +174,7 @@ class MQTTClient:
             struct.pack_into("!H", pkt, 0, pid)
             self.sock.write(pkt, 2)
         self.sock.write(msg)
+        self.last_ping = time.time()
         if qos == 1:
             while 1:
                 op = self.wait_msg()
@@ -190,6 +196,7 @@ class MQTTClient:
         self.sock.write(pkt)
         self._send_str(topic)
         self.sock.write(qos.to_bytes(1, "little"))
+        self.last_ping = time.time()
         while 1:
             op = self.wait_msg()
             if op == 0x90:
@@ -240,6 +247,8 @@ class MQTTClient:
     # Checks whether a pending message from server is available.
     # If not, returns immediately with None. Otherwise, does
     # the same processing as wait_msg.
-    def check_msg(self):
+    def process(self):
+        if (self.keepalive > 0 and (time.time() - self.last_ping) > self.keepalive):
+            self.ping()
         self.sock.setblocking(False)
         return self.wait_msg()
