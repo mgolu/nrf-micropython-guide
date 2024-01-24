@@ -3,6 +3,8 @@ from umqtt import MQTTClient
 import time
 import json
 from micropython import const
+from machine import Pin
+from zephyr import console_disable, console_enable, console_is_enabled
 
 # Import the right file for your board here
 import nrf9161dk as board
@@ -35,10 +37,16 @@ def irq_handler(event, data):
         # Data is the registration status, same as response to AT+CEREG?
         print(f'Registration status: {str(data)}')
     elif event == _IRQ_RRC_UPDATE:
-        # Data is True if connected, False if disconnected
-        print(f'RRC Mode: {"Connected" if data else "Disconnected"}')
+        # Data is True if connected, False if idle
+        print(f'RRC Mode: {"Connected" if data else "Idle"}')
+    elif event == _IRQ_CELL_UPDATE:
+        global publish_msg
+        print(f'Cell update: ID {data[0]}, TAC {data[1]}')
+        publish_msg = ('cell_update', data)
     elif event == _IRQ_PSM_UPDATE:
         print(f'PSM parameter update: TAU {data[0]}, Active time {data[1]}')
+    elif event == _IRQ_EDRX_UPDATE:
+        print(f'eDRX parameter update: Cycle {data[0]}s, PTW {data[1]}s')
     elif event == _IRQ_LOCATION_FOUND:
         dt_index = 0        # Index in the data tuple where to find datetime. If there is no datetime, then stays at 0
         gnss_index = 0      # Index in the data tuple where to find additional GNSS data. If 0, there is no data
@@ -72,23 +80,28 @@ def irq_handler(event, data):
     else:
         print("Unknown interrupt: {}".format(event))
 
-def button_press(p, c):
-    if (p == board.button1 and board.button1.value() == 0):
-        c.publish(MQTT_PREFIX + MQTT_PUB_TOPIC, b'{"appId":"BUTTON","messageType":"DATA","data":"0"}')
-    elif (p == board.button2 and board.button2.value() == 0):
-        c.publish(MQTT_PREFIX + MQTT_PUB_TOPIC, b'{"appId":"BUTTON","messageType":"DATA","data":"1"}')
+def button_publish(p, c, mqtt_device_id):
+    if (p == board.button1):
+        c.publish(f'prod/{TEAM_ID}/m/d/{mqtt_device_id}/d2c'.encode(), json.dumps({"appId":"BUTTON","messageType":"DATA","data": board.button1.value()}).encode())
 
 def run():
     nic = network.CELL()
+    # console_disable(seconds) takes in the number of seconds to disable for. If 0, then it disables
+    # indefinitely until console_enable() is called.
+    # 
+    # Disabling the console (which turns off the UART RX) saves about 1mA
+    board.button2.irq(lambda pin: console_disable(0) if console_is_enabled() else console_enable(), trigger=Pin.IRQ_RISING)
+
     # The following works for Development Kits as they have been provisioned before leaving
     # Nordic's factory with the Device ID: nrf-<imei>
     # https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/device_guides/working_with_nrf/nrf91/nrf9160_gs.html#connecting-the-dk-to-nrf-cloud
     #
     # If the DK has been reprovisioned using the UUID, then change the following line to:
-    # mqtt_device_id = nic.uuid()
-    mqtt_device_id = f'nrf-{nic.imei()}'
+    # mqtt_device_id = nic.status("uuid")
+    mqtt_device_id = f'nrf-{nic.status("imei")}'
 
-    nic.irq(handler=irq_handler, mask=_IRQ_NW_REG_STATUS | _IRQ_RRC_UPDATE | _IRQ_PSM_UPDATE | _IRQ_LOCATION_FOUND | _IRQ_LOCATION_TIMEOUT | _IRQ_LOCATION_ERROR)
+    nic.irq(handler=irq_handler, mask=_IRQ_NW_REG_STATUS | _IRQ_RRC_UPDATE | _IRQ_CELL_UPDATE | _IRQ_PSM_UPDATE | _IRQ_EDRX_UPDATE 
+                |_IRQ_LOCATION_FOUND | _IRQ_LOCATION_TIMEOUT | _IRQ_LOCATION_ERROR)
     nic.connect()
     while not nic.isconnected():
         time.sleep(1)
@@ -105,12 +118,15 @@ def run():
         sht20 = None
 
     # First try GNSS with low accuracy (fewer satellites), then fallback to cellular.
-    nic.location(gnss=(120,0), cell=20, interval=600)
+    while nic.location(gnss=(120,0), cell=20, interval=600) == -16: # -EBUSY
+        nic.location_cancel()
+        time.sleep(3)
 
     mqtt_connected = -1
     c = MQTTClient(mqtt_device_id, MQTT_SERVER, ssl=True, ssl_params={'sec_tag': DEFAULT_SEC_TAG})
-    board.button1.irq(lambda pin: button_press(pin, c))
-    board.button2.irq(lambda pin: button_press(pin, c))
+    board.button1.irq(lambda pin: button_publish(pin, c, mqtt_device_id))
+
+    nic.config(edrx=(81.92,5.12), edrx_enable=True)
 
     try:
         mqtt_connected = c.connect()
@@ -122,10 +138,15 @@ def run():
                             'board': board.BOARD_NAME,
                             'appName': 'MicroPython Tracker',
                             'appVersion': 'v1.1',
-                            'imei': nic.imei()
+                            'imei': nic.status('imei')
                         },
                         'serviceInfo': {
                             'ui': ['GPS', 'TEMP', 'BUTTON']
+                        },
+                        'simInfo': {
+                            'uiccMode': nic.status('uiccMode'),
+                            'iccid': nic.status('iccid'),
+                            'imsi': nic.status('imsi')
                         }
                         }
                     }).encode())
@@ -159,6 +180,19 @@ def run():
                     #
                     # This is shown here just in case you want to add something to publish
                     pass
+                elif publish_msg[0] == 'cell_update':
+                    # We have a new Cell ID, so let's get the latest network status
+                    msg = {'appId':'DEVICE','messageType':'DATA','data': {
+                        'networkInfo': {
+                            'cellID': publish_msg[1][0],
+                            'areaCode': publish_msg[1][1],
+                            'mccmnc': nic.status('mccmnc'),
+                            'currentBand': nic.status('band'),
+                            'ipAddress': nic.status('ipAddress'),
+                            'networkMode': 'LTE-M' if nic.status('mode') == network.LTE_MODE_LTEM else 'NB-IoT'
+                        }
+                    }}
+                    c.publish(f'prod/{TEAM_ID}/m/d/{mqtt_device_id}/d2c'.encode(), json.dumps(msg).encode())
 
                 # In either case, let's publish temperature and humidity if the sensor is present
                 if sht20:
@@ -168,6 +202,8 @@ def run():
                     c.publish(f'prod/{TEAM_ID}/m/d/{mqtt_device_id}/d2c'.encode(), json.dumps(msg).encode())
                 publish_msg = None
             
+            # This is needed for the MQTT Client to properly handle the keep alive as well
+            # as any incoming messages (although this demo doesn't have any incoming messages)
             c.process()
         except:
             c.disconnect()
