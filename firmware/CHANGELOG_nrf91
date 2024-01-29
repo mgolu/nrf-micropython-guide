@@ -1,3 +1,9 @@
+v1.2 - 24 January 2024
+Added eDRX support.
+Added zephyr.console_is_enabled() and zephyr.console_enable().
+Removed CELL.uuid() and CELL.imei(). Replaced with CELL.status('uuid') and CELL.status('imei').
+Added to CELL.status('<>'): ipAddress, apn, iccid, imsi, band, uuicMode, mccmnc.
+
 v1.1 - 16 January 2024
 Removed CELL.active(): modem is activated (but CFUN=0) when the object is created.
 Added JSON library

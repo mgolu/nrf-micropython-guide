@@ -26,8 +26,15 @@ Install the ``tracker.py`` file.
 ## Running the sample
 
 Run the `tracker.py` file. This will make a connection to nRF Cloud and 
-post the location of the device, in addition to other data, every 5 minutes.
+post the location of the device, in addition to other data, every 10 minutes.
 You can see the data come in on the nRF Cloud dashboard for the device.
+
+Pressing Button 1 on the development kit will send data to the Button information
+card in nRF Cloud.
+
+Pressing Button 2 will enable or disable the console port. This allows you to achieve
+the lowest possible power consumption by not keeping the UART RX clock running. The
+application by default requests eDRX, also to lower power consumption.
 
 ### Customizing the program
 
@@ -40,7 +47,7 @@ the nRF91xx will attempt a GNSS fix for up to 120 seconds, and accept lower accu
 data to nRF Cloud for a cellular location, with a timeout of 20 seconds.
 ```python
 # First try GNSS with low accuracy (fewer satellites), then fallback to cellular.
-nic.location(gnss=(120,0), cell=20, interval=300)
+nic.location(gnss=(120,0), cell=20, interval=600)
 ```
 You can also change what custom data is published in the `while True` loop by changing
 the `c.publish` commands.

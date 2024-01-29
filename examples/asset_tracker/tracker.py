@@ -30,9 +30,11 @@ MQTT_KEEPALIVE = 1200    # in seconds
 # Get the following data from your Team ID in nRF Cloud.
 TEAM_ID = ""
 
-publish_msg = None
+publish_msg = None      # For messaging from the IRQ handler, since we shouldn't be doing time consuming things like publishing in the handler
+nic = network.CELL()    # This is a singleton, so we should only get it once
 
 def irq_handler(event, data):
+    global publish_msg
     if event == _IRQ_NW_REG_STATUS:
         # Data is the registration status, same as response to AT+CEREG?
         print(f'Registration status: {str(data)}')
@@ -40,8 +42,6 @@ def irq_handler(event, data):
         # Data is True if connected, False if idle
         print(f'RRC Mode: {"Connected" if data else "Idle"}')
     elif event == _IRQ_CELL_UPDATE:
-        global publish_msg
-        print(f'Cell update: ID {data[0]}, TAC {data[1]}')
         publish_msg = ('cell_update', data)
     elif event == _IRQ_PSM_UPDATE:
         print(f'PSM parameter update: TAU {data[0]}, Active time {data[1]}')
@@ -67,10 +67,8 @@ def irq_handler(event, data):
         if dt_index > 0:
             print(f'Location found on {data[dt_index]}/{data[dt_index+1]}/{data[dt_index+2]} at {data[dt_index+3]}:{data[dt_index+4]:2d}:{data[dt_index+5]:2d}.{data[dt_index+6]:3d}')
         if (data[0] == "GNSS"):
-            global publish_msg
             publish_msg = ('gnss', data)
         elif (data[0] == "Cellular"):
-            global publish_msg
             publish_msg = ('cell',)
 
     elif event == _IRQ_LOCATION_TIMEOUT:
@@ -80,12 +78,41 @@ def irq_handler(event, data):
     else:
         print("Unknown interrupt: {}".format(event))
 
-def button_publish(p, c, mqtt_device_id):
+def button_publish(p, mqtt_client):
     if (p == board.button1):
-        c.publish(f'prod/{TEAM_ID}/m/d/{mqtt_device_id}/d2c'.encode(), json.dumps({"appId":"BUTTON","messageType":"DATA","data": board.button1.value()}).encode())
+        mqtt_client.publish(f'prod/{TEAM_ID}/m/d/{mqtt_client.client_id}/d2c'.encode(), json.dumps({"appId":"BUTTON","messageType":"DATA","data": board.button1.value()}).encode())
+
+def setup_mqtt_connection(mqtt_client):
+    if mqtt_client.connect() == 0:
+        try:
+            # First publish the device information that nRF Cloud displays
+            mqtt_client.publish(f'prod/{TEAM_ID}/m/d/{mqtt_client.client_id}/d2c'.encode(), json.dumps(
+                {'appId':'DEVICE','messageType':'DATA','data': {
+                    'deviceInfo': {
+                        'board': board.BOARD_NAME,
+                        'appName': 'MicroPython Tracker',
+                        'appVersion': 'v1.1',
+                        'imei': nic.status('imei')
+                    },
+                    'serviceInfo': {
+                        'ui': ['GPS', 'TEMP', 'BUTTON']
+                    },
+                    'simInfo': {
+                        'uiccMode': nic.status('uiccMode'),
+                        'iccid': nic.status('iccid'),
+                        'imsi': nic.status('imsi')
+                    }
+                    }
+                }).encode())
+        except:
+            mqtt_client.disconnect()
+            return -1
+    else:
+        return -1
+
+    return 0
 
 def run():
-    nic = network.CELL()
     # console_disable(seconds) takes in the number of seconds to disable for. If 0, then it disables
     # indefinitely until console_enable() is called.
     # 
@@ -122,43 +149,19 @@ def run():
         nic.location_cancel()
         time.sleep(3)
 
-    mqtt_connected = -1
-    c = MQTTClient(mqtt_device_id, MQTT_SERVER, ssl=True, ssl_params={'sec_tag': DEFAULT_SEC_TAG})
-    board.button1.irq(lambda pin: button_publish(pin, c, mqtt_device_id))
+    mqtt_client = MQTTClient(mqtt_device_id, MQTT_SERVER, ssl=True, ssl_params={'sec_tag': DEFAULT_SEC_TAG})
+    mqtt_connected = setup_mqtt_connection(mqtt_client)
 
-    nic.config(edrx=(81.92,5.12), edrx_enable=True)
+    board.button1.irq(lambda pin: button_publish(pin, mqtt_client))
 
-    try:
-        mqtt_connected = c.connect()
-
-        # First publish the device information that nRF Cloud displays
-        c.publish(f'prod/{TEAM_ID}/m/d/{mqtt_device_id}/d2c'.encode(), json.dumps(
-                    {'appId':'DEVICE','messageType':'DATA','data': {
-                        'deviceInfo': {
-                            'board': board.BOARD_NAME,
-                            'appName': 'MicroPython Tracker',
-                            'appVersion': 'v1.1',
-                            'imei': nic.status('imei')
-                        },
-                        'serviceInfo': {
-                            'ui': ['GPS', 'TEMP', 'BUTTON']
-                        },
-                        'simInfo': {
-                            'uiccMode': nic.status('uiccMode'),
-                            'iccid': nic.status('iccid'),
-                            'imsi': nic.status('imsi')
-                        }
-                        }
-                    }).encode())
-    except:
-        c.disconnect()
+    nic.config(edrx=(81.92,5.12), edrx_enable=True)     # Set low power
 
     global publish_msg
-    while True:
-        time.sleep_ms(1000)
-        try:
+    try:
+        while True:
+            time.sleep_ms(1000)
             if mqtt_connected != 0:
-                mqtt_connected = c.connect()
+                mqtt_connected = setup_mqtt_connection(mqtt_client)
             if publish_msg:
                 gnss_index = 0
                 if publish_msg[0] == 'gnss':
@@ -173,7 +176,7 @@ def run():
                     # Now let's add some additional data, it can be any valid key/value pair.
                     # The extra data is not shown on the nRF Cloud portal, but it can be retrieved via REST API
                     msg['data']['extra'] = 80
-                    c.publish(f'prod/{TEAM_ID}/m/d/{mqtt_device_id}/d2c'.encode(), json.dumps(msg).encode())
+                    mqtt_client.publish(f'prod/{TEAM_ID}/m/d/{mqtt_device_id}/d2c'.encode(), json.dumps(msg).encode())
                 elif publish_msg[0] == 'cell':
                     # We don't need to publish location because Cell location is saved by nRF Cloud when
                     # the device sends the cell data to nRF Cloud for location information
@@ -192,22 +195,23 @@ def run():
                             'networkMode': 'LTE-M' if nic.status('mode') == network.LTE_MODE_LTEM else 'NB-IoT'
                         }
                     }}
-                    c.publish(f'prod/{TEAM_ID}/m/d/{mqtt_device_id}/d2c'.encode(), json.dumps(msg).encode())
+                    mqtt_client.publish(f'prod/{TEAM_ID}/m/d/{mqtt_device_id}/d2c'.encode(), json.dumps(msg).encode())
 
                 # In either case, let's publish temperature and humidity if the sensor is present
                 if sht20:
                     msg = {"appId":"TEMP", "messageType": "DATA", "data": sht20.temperature()}
-                    c.publish(f'prod/{TEAM_ID}/m/d/{mqtt_device_id}/d2c'.encode(), json.dumps(msg).encode())
+                    mqtt_client.publish(f'prod/{TEAM_ID}/m/d/{mqtt_device_id}/d2c'.encode(), json.dumps(msg).encode())
                     msg = {"appId":"HUMID", "messageType": "DATA", "data": sht20.humidity()}
-                    c.publish(f'prod/{TEAM_ID}/m/d/{mqtt_device_id}/d2c'.encode(), json.dumps(msg).encode())
+                    mqtt_client.publish(f'prod/{TEAM_ID}/m/d/{mqtt_device_id}/d2c'.encode(), json.dumps(msg).encode())
                 publish_msg = None
             
             # This is needed for the MQTT Client to properly handle the keep alive as well
             # as any incoming messages (although this demo doesn't have any incoming messages)
-            c.process()
-        except:
-            c.disconnect()
-            mqtt_connected = -1
+            mqtt_client.process()
+    except Exception as e: print(e)
+    finally:
+        mqtt_client.disconnect()
+        mqtt_connected = -1
 
 if __name__ == "__main__":
     run()
