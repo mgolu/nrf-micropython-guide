@@ -1,3 +1,8 @@
+v1.3 - 6 February 2024
+Removed built-in nRF Cloud Location Services. Instead, use MQTT to access them.
+Added AGNSS and Cell location injection APIs: CELL.agnss_data() and CELL.location_cloud_fix().
+Added to CELL.status('<>'): rsrp, area, cellid
+
 v1.2 - 24 January 2024
 Added eDRX support.
 Added zephyr.console_is_enabled() and zephyr.console_enable().

@@ -42,6 +42,10 @@ class MQTTClient:
         self.lw_retain = False
         self.last_ping = 0
 
+    def __del__(self):
+        if self.sock:
+            self.sock.close()
+
     def _send_str(self, s):
         self.sock.write(struct.pack("!H", len(s)))
         self.sock.write(s)
@@ -68,7 +72,10 @@ class MQTTClient:
         self.lw_retain = retain
 
     def connect(self, clean_session=True):
-        addr = socket.getaddrinfo(self.server, self.port)[0][-1]
+        try:
+            addr = socket.getaddrinfo(self.server, self.port)[0][-1]
+        except:
+            return -1
         # Create offloaded TLS socket
         if self.ssl:
             if self.ssl_params.get('hostname'):

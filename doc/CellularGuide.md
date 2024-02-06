@@ -144,6 +144,12 @@ This returns a string with the concatenated value MCCMNC. e.g.: '311480'
 
 ``'apn'``: Get the APN for the current connection.
 
+``'rsrp'``: Get the signal level of the current connection.
+
+``'cellid'``: Get the current cell identifier, as a hex string.
+
+``'area'``: Get the current TAC, as a hex string.
+
 ``'iccid'``: Get the ICCID for the UICC.
 
 ``'imsi'``: Get the IMSI for the UICC.
@@ -198,17 +204,19 @@ interrupts are not defined as module constants. You can instead add the ones nee
 Python scripts:
 
 ```python
-_IRQ_NW_REG_STATUS       = const(0x1)
-_IRQ_PSM_UPDATE          = const(0x2)
-_IRQ_EDRX_UPDATE         = const(0x4)
-_IRQ_RRC_UPDATE          = const(0x8)
-_IRQ_CELL_UPDATE         = const(0x10)
-_IRQ_LTE_MODE_UPDATE     = const(0x20)
-_IRQ_TAU_PRE_WARN        = const(0x40)
-_IRQ_NEIGHBOR_CELL_MEAS  = const(0x80)
-_IRQ_LOCATION_FOUND      = const(0x100)
-_IRQ_LOCATION_TIMEOUT    = const(0x200)
-_IRQ_LOCATION_ERROR      = const(0x400)
+_IRQ_NW_REG_STATUS              = const(0x1)
+_IRQ_PSM_UPDATE                 = const(0x2)
+_IRQ_EDRX_UPDATE                = const(0x4)
+_IRQ_RRC_UPDATE                 = const(0x8)
+_IRQ_CELL_UPDATE                = const(0x10)
+_IRQ_LTE_MODE_UPDATE            = const(0x20)
+_IRQ_TAU_PRE_WARN               = const(0x40)
+_IRQ_NEIGHBOR_CELL_MEAS         = const(0x80)
+_IRQ_LOCATION_FOUND             = const(0x100)
+_IRQ_LOCATION_TIMEOUT           = const(0x200)
+_IRQ_LOCATION_ERROR             = const(0x400)
+_IRQ_GNSS_ASSISTANCE_REQUEST    = const(0x800)
+_IRQ_CELL_LOCATION_REQUEST      = const(0x1000)
 ```
 
 ## Location Services
@@ -219,10 +227,11 @@ Get the location of the device, using GNSS, cellular location, or both.
 The arguments can be:
 
 * ``gnss``: set the timeout for getting GNSS location in seconds. If a tuple, the first value is the timeout, the second is the accuracy, and the third is satellite visibility detection.
-> **_NOTE_**: if the device is connected to nRF Cloud, it will use `AGPS` to speed up the time to GNSS fix.
+> **_NOTE_**: the device might trigger a `_IRQ_GNSS_ASSISTANCE_REQUEST` if it needs `AGNSS` data. The program should retrieve the data and submit via the `CELL.agnss_data()` API.
 
-* ``cell``: set the timeout for getting the cellular location in seconds. If a tuple, the first value is a timeout, and the second the number of cell towers to detect. The location is reported back to the device from nRF Cloud and sent via the `_IRQ_LOCATION_FOUND` interrupt. It is also stored in nRF Cloud, and you can view it on your device's dashboard
-> **_NOTE_**: requires the device to connect to nRF Cloud to get the approximate location from the detected tower data.
+* ``cell``: set the timeout for getting the cellular location in seconds. If a tuple, the first value is a timeout, and the second the number of cell towers to detect. The device will
+send an `_IRQ_CELL_LOCATION_REQUEST` with cell information. Both currently connected cell and neighboring cells are included. The program should then get the location from nRF Cloud and
+report that using `CELL.location_cloud_fix()`. This will trigger a `_IRQ_LOCATION_FOUND` interrupt. The location is also stored in nRF Cloud, and you can view it on your device's dashboard
 
 * ``interval``: how often to get the location, in seconds. If not used, location is requested once
 * ``all``: True to get location using all methods, False to use the first method listed, and only use the next as a fallback if the first fails.
@@ -253,3 +262,11 @@ Example:
 #### CELL.location_cancel()
 
 Cancel a location request.
+
+#### CELL.agnss_data(data: bytes)
+
+Submit `AGNSS` assistance data to the modem. The data must be in the binary data format that nRF Cloud returns.
+
+#### CELL.location_cloud_fix(latitude: float, longitude: float, accuracy: float)
+
+Submit the location retrieved from the cloud based on current and neighboring cells. 
