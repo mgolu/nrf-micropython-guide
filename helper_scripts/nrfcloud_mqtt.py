@@ -30,7 +30,6 @@ class nRFCloudMQTT:
             # Response with the shadow, to get topics and pairing status
             shadow = json.loads(msg.decode())
             if shadow['desired']['pairing']['state'] != 'paired':
-                print("Device is not paired, add it to your nRF Cloud account")
                 self.status = self.State["UNPAIRED"]
             else:
                 self.prefix = shadow['desired']['nrfcloud_mqtt_topic_prefix']
@@ -65,12 +64,14 @@ class nRFCloudMQTT:
                 self.mqtt_client.subscribe(f'{self.prefix}m/d/{self.device_id}/ground_fix/r'.encode())
                 print("Connected to nRF Cloud")
                 return 0
-            elif self.status < self.State["UNPAIRED"]:
+            elif self.status <= self.State["UNPAIRED"]:
                 # Device is not paired, so we are not able to send data
-                print("Device is unpaired, ensure it is added to your nRF Cloud account")
+                print(f'Device is unpaired, add it to your nRF Cloud account: {self.device_id}')
+                self.mqtt_client.disconnect()
                 return -1
             else:
                 # Some other issue
+                self.mqtt_client.disconnect()
                 return -1
         else:
             print("Connection to nRF Cloud failed")

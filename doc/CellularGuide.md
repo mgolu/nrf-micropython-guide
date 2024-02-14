@@ -80,11 +80,12 @@ with open('/flash/ca_cert.pem', 'r') as f:
 
 Because the socket and TLS encryption is offloaded, the standard Micropython way of 
 wrapping sockets with the `ssl` module after being created doesn't work. Instead, the
-socket needs to be created as a TLS socket.
+SSL needs to be added through the modem's socket interface.
 
-The API to create a socket is:
+To create a TLS socket:
 ```python
-socket.socket(family, socktype, proto, sec_tag[, verify[, hostname]])
+sock = socket.socket(family, socktype, proto)
+sock.tlswrap(sec_tag[, verify=socket.TLS_PEER_VERIFY_REQUIRED[, hostname=hostname]])
 ```
 
 ``family`` is required and can be ``socket.AF_INET`` or ``socket.AF_INET6``
@@ -97,8 +98,7 @@ socket.socket(family, socktype, proto, sec_tag[, verify[, hostname]])
 
 `verify` is optional and can be `socket.TLS_PEER_VERIFY_NONE`, `socket.TLS_PEER_VERIFY_OPTIONAL`, or `TLS_PEER_VERIFY_REQUIRED` (default).
 
-If `verify` is included, you can also include `hostname` which must be a string. 
-If included, then Server Name Identification (SNI) is used.
+`hostname` is optional and must be a string. If included, then Server Name Identification (SNI) is used.
 
 ### Specifics of the CELL class
 
@@ -218,6 +218,60 @@ _IRQ_LOCATION_ERROR             = const(0x400)
 _IRQ_GNSS_ASSISTANCE_REQUEST    = const(0x800)
 _IRQ_CELL_LOCATION_REQUEST      = const(0x1000)
 ```
+
+### PDN management (experimental)
+
+#### Example usage
+
+```python
+import network
+import socket
+
+nic = network.CELL()
+nic.connect()
+
+# Wait until there is a connection to the network
+
+cid = nic.pdn_create("apn_name", network.PDN_FAM_NONIP) # Create an NIDD PDN
+nic.pdn_activate(cid)
+
+s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, 0)
+s.pdn(nic.pdn_id(cid))
+
+```
+
+#### CELL.pdn_create(apn, family, keyword arguments) -> int cid
+
+Returns the Context ID (cid), a positive number. If the return is a negative number, an error occurred.
+
+Create a PDN. ``apn`` is the name of the APN, and family is ``network.PDN_FAM_IPV4``, ``network.PDN_FAM_IPV6``, ``network.PDN_FAM_IPV4V6`` or ``network.PDN_FAM_NONIP``.
+
+Keyword arguments are all optional, and can be:
+``ip4_addr_alloc``, ``nslpi``, ``secure_pco``: all can be 0 or 1. See documentation here: https://docs.nordicsemi.com/bundle/ncs-2.5.2/page/nrf/libraries/modem/pdn.html#c.pdn_pdp_opt
+
+``auth``: an integer that can be ``network.PDN_AUTH_PAP`` or ``network.PDN_AUTH_CHAP``
+ 
+``user``, ``password``: strings for the authentication
+
+#### CELL.pdn_id(cid) -> int id
+
+Gets the ID of the PDN. Pass the cid value returned by ``pdn_create``.
+
+#### CELL.pdn_activate(cid, activate)
+
+If ``activate`` is True, activates the PDN. If False, it deactivates it.
+
+Returns None if successful, a negative number if error.
+
+#### CELL.pdn_destroy(cid)
+
+Destroy the PDN context and free up resources.
+
+Returns None if successful, a negative number if error.
+
+#### CELL.pdn_default_apn() -> string apn
+
+Returns the name of the default APN
 
 ## Location Services
 

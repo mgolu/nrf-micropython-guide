@@ -78,19 +78,11 @@ class MQTTClient:
             return -1
         # Create offloaded TLS socket
         if self.ssl:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TLS_1_2)
             if self.ssl_params.get('hostname'):
-                self.sock = socket.socket(socket.AF_INET, 
-                    socket.SOCK_STREAM,
-                    socket.IPPROTO_TLS_1_2, 
-                    self.ssl_params['sec_tag'], 
-                    self.ssl_params.get('verify', socket.TLS_PEER_VERIFY_REQUIRED), 
-                    self.ssl_params['hostname'])
+                self.sock.tlswrap(self.ssl_params['sec_tag'], verify=self.ssl_params.get('verify', socket.TLS_PEER_VERIFY_REQUIRED), hostname=self.ssl_params['hostname'])
             else:
-                self.sock = socket.socket(socket.AF_INET, 
-                    socket.SOCK_STREAM,
-                    socket.IPPROTO_TLS_1_2, 
-                    self.ssl_params['sec_tag'], 
-                    self.ssl_params.get('verify', socket.TLS_PEER_VERIFY_REQUIRED))
+                self.sock.tlswrap(self.ssl_params['sec_tag'], verify=self.ssl_params.get('verify', socket.TLS_PEER_VERIFY_REQUIRED))
         else:
             self.sock = socket.socket()
         
@@ -140,7 +132,9 @@ class MQTTClient:
             self.sock.close()
             return -1
 
-        assert resp[0] == 0x20 and resp[1] == 0x02
+        if resp[0] != 0x20 or resp[1] != 0x02:
+            self.sock.close()
+            return -1
         if resp[3] != 0:
             raise MQTTException(resp[3])
         
