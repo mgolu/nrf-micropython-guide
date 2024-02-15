@@ -77,7 +77,7 @@ def irq_handler(event, data):
     else:
         print("Unknown interrupt: {}".format(event))
 
-def button_publish(p, mqtt_client):
+def button_publish(p, cloud):
     if (p == board.button1):
         cloud.d2c({"appId":"BUTTON","messageType":"DATA","data": board.button1.value()})
 
