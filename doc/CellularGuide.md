@@ -228,15 +228,18 @@ import network
 import socket
 
 nic = network.CELL()
+nic.config(mode=(network.LTE_MODE_NBIOT,network.LTE_MODE_NBIOT))
 nic.connect()
 
 # Wait until there is a connection to the network
 
-cid = nic.pdn_create("apn_name", network.PDN_FAM_NONIP) # Create an NIDD PDN
-nic.pdn_activate(cid)
+cid = nic.pdn_create("apn_name", network.PDN_FAM_NONIP) # Create an NIDD PDN. Replace apn_name with your carrier's information
+nic.pdn_activate(cid, True)
 
 s = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, 0)
 s.pdn(nic.pdn_id(cid))
+
+s.write("Hello World, Sending from nRF MicroPython port")
 
 ```
 
