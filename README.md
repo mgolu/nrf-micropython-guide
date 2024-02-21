@@ -28,5 +28,6 @@ The following boards are currently supported:
 
 * [nrf9161DK](/doc/nrf9161dk.md): Cellular and GNSS Development Kit
 * [nrf9160DK](/doc/nrf9160dk.md): Cellular and GNSS Development Kit
+* [nrf9151DK](/doc/nrf9151dk.md): Cellular and GNSS Development Kit
 * [nRF7002DK](/doc/nRF7002dk.md): BLE and Wi-Fi Development Kit
 

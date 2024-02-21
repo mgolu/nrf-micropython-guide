@@ -136,7 +136,8 @@ def run():
         })
 
     board.button1.irq(lambda pin: button_publish(pin, cloud))
-    nic.config(edrx=(81.92,5.12), edrx_enable=True)     # Set low power
+    nic.config(edrx=(81.92,5.12), edrx_enable=True)     # Set eDRX
+    #nic.config(psm_params=("11000001","00001010"), psm_enable=True) # Set PSM
 
     # First try GNSS with low accuracy (fewer satellites), then fallback to cellular.
     while nic.location(gnss=(120,0), cell=20, interval=1800) == -16: # -EBUSY

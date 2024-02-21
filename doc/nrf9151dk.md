@@ -1,19 +1,19 @@
-# nRF9161DK device guide
+# nRF9151DK device guide
 
 ## Installation
 
 > **_NOTE_**: If you will be using cellular location or want to speed up GNSS location by using `AGNSS`, the development kit needs to be connected to nRF Cloud to get the data. Follow [these steps](https://developer.nordicsemi.com/nRF_Connect_SDK/doc/latest/nrf/device_guides/working_with_nrf/nrf91/nrf9160_gs.html#connecting-the-dk-to-nrf-cloud) before installing Micropython on it or while running a MicroPython program that tries
 to connect to nRF Cloud (like the Asset Tracker example). This only needs to be done once.
 
-- Download the `nrf9161dk_merged.hex` file from the [firmware directory](/firmware/).
-- Download the latest [modem firmware](https://www.nordicsemi.com/Products/nRF9161/Download?lang=en#infotabs). It should be named 
+- Download the `nrf9151dk_merged.hex` file from the [firmware directory](/firmware/).
+- Download the latest [modem firmware](https://www.nordicsemi.com/Products/nRF9151/Download?lang=en#infotabs). It should be named 
 `mfw_nrf91x1_2.x.x.zip`. Do NOT unzip the file.
 - Install [nRF Connect for Desktop](https://www.nordicsemi.com/Products/Development-tools/nrf-connect-for-desktop) 
 - Use the [Programmer](https://infocenter.nordicsemi.com/topic/ug_nc_programmer/UG/nrf_connect_programmer/ncp_application_overview.html?cp=11_3_2_2) application to program the modem firmware and application Hex file onto your development kit.
 
 ## Usage
 
-The interface chip on the nRF9161DK exposes 2 virtual COM ports. The first one is where you will find the MicroPython REPL prompt.
+The interface chip on the nRF9151DK exposes 2 virtual COM ports. The first one is where you will find the MicroPython REPL prompt.
 
 ### Filesystem
 
